@@ -18,7 +18,7 @@ import (
 )
 
 var HopHeaders = []string{
-	// "Connection",
+	"Connection",
 	"Keep-Alive",
 	"Proxy-Connection",
 	"Proxy-Authenticate",
@@ -30,11 +30,12 @@ var HopHeaders = []string{
 }
 
 type ForwardProxy struct {
-	logger *zap.SugaredLogger
+	logger       *zap.SugaredLogger
+	certificates map[string]tls.Certificate
 }
 
 func NewForwardProxy(logger *zap.SugaredLogger) *ForwardProxy {
-	return &ForwardProxy{logger}
+	return &ForwardProxy{logger, map[string]tls.Certificate{}}
 }
 
 func (p *ForwardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -81,7 +82,6 @@ func (p *ForwardProxy) handleHttps(w http.ResponseWriter, rawReq *http.Request) 
 	}
 
 	conn, _, err := hj.Hijack()
-	
 	defer conn.Close()
 	if err != nil {
 		p.logger.Error("failed to hijack conn", zap.Error(err))
@@ -94,49 +94,53 @@ func (p *ForwardProxy) handleHttps(w http.ResponseWriter, rawReq *http.Request) 
 		return
 	}
 
-	cert, err := p.CreateCert(host)
+	if _, ok := p.certificates[host]; !ok {
+		cert, err := p.CreateCert(host)
+		if err != nil {
+			p.logger.Error("failed to generate certificate", zap.Error(err), zap.String("host", host))
+			return
+		}
+		p.certificates[host] = cert
+	}
+
 	if err != nil {
 		p.logger.Error("failed go generate certificate", zap.Error(err))
 		return
 	}
 
 	if _, err := conn.Write([]byte("HTTP/1.0 200 Connection established\r\n\r\n")); err != nil {
-		p.logger.Error("failed to writing status", zap.Error(err))
+		p.logger.Error("failed to writing connection response", zap.Error(err))
 		return
 	}
 
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{cert},
-		MinVersion:   tls.VersionTLS13,
+		Certificates: []tls.Certificate{p.certificates[host]},
 	}
 
 	tlsConn := tls.Server(conn, tlsConfig)
+	defer tlsConn.Close()
 
 	reader := bufio.NewReader(tlsConn)
 
-	var r *http.Request = nil
-
-	for r, err = http.ReadRequest(reader); err != io.EOF; r, err = http.ReadRequest(reader) {
-		if err != nil {
-			p.logger.Error("failed to read from connection", zap.Error(err))
-			return
-		}
-
-		p.UpdateURL(r, rawReq.Host)
-		p.logger.Infow("tls request", "uri", r.RequestURI, "url", r.URL.String(), "method", r.Method)
-
-		response, err := http.DefaultClient.Do(r)
-		if err != nil {
-			p.logger.Error("failed to send request", zap.Error(err))
-		}
-
-		defer response.Body.Close()
-
-		if err := response.Write(tlsConn); err != nil {
-			p.logger.Error("failed to write response to tls connection", zap.Error(err))
-		}
+	r, err := http.ReadRequest(reader)
+	if err != nil {
+		p.logger.Error("failed to read request", zap.Error(err))
 	}
-	tlsConn.Close()
+	p.UpdateURL(r, rawReq.Host)
+
+	for _, h := range HopHeaders {
+		r.Header.Del(h)
+	}
+
+	response, err := http.DefaultClient.Do(r)
+	if err != nil {
+		p.logger.Error("failed to send request", zap.Error(err))
+	}
+	defer response.Body.Close()
+
+	if err := response.Write(tlsConn); err != nil {
+		p.logger.Error("failed to write response to tls connection", zap.Error(err))
+	}
 }
 
 func (p *ForwardProxy) UpdateURL(r *http.Request, host string) {

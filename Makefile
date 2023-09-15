@@ -1,9 +1,9 @@
-all: run
+all: run update-cert
 
 build:
 	@docker compose build
 
-down:
+down: clean
 	@docker compose down
 	
 create-crt:
