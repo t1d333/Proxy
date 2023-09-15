@@ -6,6 +6,8 @@ services:
     container_name: proxy
     ports:
       - "8080:8080"
+    volumes:
+      - ./certs/ca.crt:/ca.crt
   api:
     build:
       context: .

@@ -13,5 +13,7 @@ func main() {
 	defer logger.Sync()
 	proxy := proxy.NewForwardProxy(sugar)
 
-	http.ListenAndServe(":8080", proxy)
+	if err := http.ListenAndServe(":8080", proxy); err != nil {
+		sugar.Fatalw("failed to start server", "err", err)
+	}
 }
