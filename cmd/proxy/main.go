@@ -1,8 +1,10 @@
 package main
 
 import (
+	"context"
 	"net/http"
 
+	"github.com/t1d333/proxyhw/internal/db/mongo"
 	"github.com/t1d333/proxyhw/internal/proxy"
 	"go.uber.org/zap"
 )
@@ -12,6 +14,7 @@ func main() {
 	sugar := logger.Sugar()
 	defer logger.Sync()
 	proxy := proxy.NewForwardProxy(sugar)
+	mongo.InitDB(context.TODO(), sugar)
 
 	sugar.Info("starting proxy server on port 8080...")
 	if err := http.ListenAndServe(":8080", proxy); err != nil {

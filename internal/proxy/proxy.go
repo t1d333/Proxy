@@ -103,11 +103,6 @@ func (p *ForwardProxy) handleHttps(w http.ResponseWriter, rawReq *http.Request) 
 		p.certificates[host] = cert
 	}
 
-	if err != nil {
-		p.logger.Error("failed go generate certificate", zap.Error(err))
-		return
-	}
-
 	if _, err := conn.Write([]byte("HTTP/1.0 200 Connection established\r\n\r\n")); err != nil {
 		p.logger.Error("failed to writing connection response", zap.Error(err))
 		return
