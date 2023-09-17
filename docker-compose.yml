@@ -18,7 +18,7 @@ services:
   db:
     container_name: mongo
     environment:
-      MONGO_INITDB_DATABASE: "requests"
+      MONGO_INITDB_DATABASE: "proxy"
       MONGO_INITDB_ROOT_PASSWORD: "password"
       MONGO_INITDB_ROOT_USERNAME: "user"
     image: mongo

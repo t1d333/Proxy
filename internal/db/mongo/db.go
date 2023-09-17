@@ -10,7 +10,7 @@ import (
 
 func InitDB(ctx context.Context, logger *zap.SugaredLogger) *mongo.Client {
 	logger.Info("trying connect to mongo...")
-	client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://db:27017"))
+	client, err := mongo.Connect(ctx, options.Client().ApplyURI("mongodb://user:password@db:27017"))
 	if err != nil {
 		logger.Fatal("mongo client creation failed", zap.Error(err))
 		return nil

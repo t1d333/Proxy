@@ -5,8 +5,10 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/go-chi/chi/v5"
+	"github.com/go-chi/chi/v5/middleware"
 	"github.com/t1d333/proxyhw/internal/db/mongo"
-	"github.com/t1d333/proxyhw/internal/proxy"
+	del "github.com/t1d333/proxyhw/internal/delivery/http"
 	rep "github.com/t1d333/proxyhw/internal/repository/mongo"
 	"go.uber.org/zap"
 )
@@ -20,9 +22,12 @@ func main() {
 	conn := mongo.InitDB(ctx, sugar)
 
 	rep := rep.NewRepository(conn, sugar)
-	proxy := proxy.NewForwardProxy(sugar, rep)
-	sugar.Info("starting proxy server on port 8080...")
-	if err := http.ListenAndServe(":8080", proxy); err != nil {
+	router := chi.NewRouter()
+	router.Use(middleware.Logger)
+	router.Use(middleware.Recoverer)
+	del.InitHandlers(router, sugar, rep)
+	sugar.Info("starting proxy server on port 8000...")
+	if err := http.ListenAndServe(":8000", router); err != nil {
 		sugar.Fatalw("failed to start server", "err", err)
 	}
 }

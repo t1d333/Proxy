@@ -12,8 +12,9 @@ import (
 	"net/url"
 	"os/exec"
 	"strings"
-	"time"
+	"sync"
 
+	"github.com/t1d333/proxyhw/internal/repository"
 	"go.uber.org/zap"
 )
 
@@ -31,15 +32,16 @@ var HopHeaders = []string{
 
 type ForwardProxy struct {
 	logger       *zap.SugaredLogger
-	certificates map[string]tls.Certificate
+	rep          repository.Repository
+	certificates sync.Map
 }
 
-func NewForwardProxy(logger *zap.SugaredLogger) *ForwardProxy {
-	return &ForwardProxy{logger, map[string]tls.Certificate{}}
+func NewForwardProxy(logger *zap.SugaredLogger, rep repository.Repository) *ForwardProxy {
+	return &ForwardProxy{logger, rep, sync.Map{}}
 }
 
 func (p *ForwardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	p.logger.Infow("new request", "url", r.URL.String(), "method", r.Method, "scheme", r.URL.Scheme)
+	p.logger.Infow("new request", "url", r.URL.String(), "method", r.Method)
 	if r.Method == http.MethodConnect {
 		p.handleHttps(w, r)
 	} else {
@@ -62,6 +64,10 @@ func (p *ForwardProxy) handleHttp(w http.ResponseWriter, r *http.Request) {
 
 	defer response.Body.Close()
 
+	if err := p.rep.CreateRequestResponsePair(response.Request, response); err != nil {
+		p.logger.Error("failed to save request", zap.Error(err))
+	}
+
 	for k, vv := range response.Header {
 		for _, v := range vv {
 			w.Header().Add(k, v)
@@ -75,9 +81,11 @@ func (p *ForwardProxy) handleHttp(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *ForwardProxy) handleHttps(w http.ResponseWriter, rawReq *http.Request) {
+	w.WriteHeader(http.StatusOK)
 	hj, ok := w.(http.Hijacker)
 	if !ok {
 		p.logger.Error("failed to convert hijacker")
+		http.Error(w, "Hijacking not supported", http.StatusInternalServerError)
 		return
 	}
 
@@ -85,6 +93,7 @@ func (p *ForwardProxy) handleHttps(w http.ResponseWriter, rawReq *http.Request) 
 	defer conn.Close()
 	if err != nil {
 		p.logger.Error("failed to hijack conn", zap.Error(err))
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
@@ -94,22 +103,19 @@ func (p *ForwardProxy) handleHttps(w http.ResponseWriter, rawReq *http.Request) 
 		return
 	}
 
-	if _, ok := p.certificates[host]; !ok {
+	if _, ok := p.certificates.Load(host); !ok {
 		cert, err := p.CreateCert(host)
 		if err != nil {
 			p.logger.Error("failed to generate certificate", zap.Error(err), zap.String("host", host))
 			return
 		}
-		p.certificates[host] = cert
+
+		p.certificates.Store(host, cert)
 	}
 
-	if _, err := conn.Write([]byte("HTTP/1.0 200 Connection established\r\n\r\n")); err != nil {
-		p.logger.Error("failed to writing connection response", zap.Error(err))
-		return
-	}
-
+	cert, _ := p.certificates.Load(host)
 	tlsConfig := &tls.Config{
-		Certificates: []tls.Certificate{p.certificates[host]},
+		Certificates: []tls.Certificate{cert.(tls.Certificate)},
 	}
 
 	tlsConn := tls.Server(conn, tlsConfig)
@@ -119,8 +125,14 @@ func (p *ForwardProxy) handleHttps(w http.ResponseWriter, rawReq *http.Request) 
 
 	r, err := http.ReadRequest(reader)
 	if err != nil {
-		p.logger.Error("failed to read request", zap.Error(err))
+		if err != io.EOF {
+			p.logger.Error("failed to read request", zap.Error(err))
+		}
+		return
 	}
+
+	p.logger.Infow("new tls request", "url", r.URL.String(), "host", r.Host, "method", r.Method)
+
 	p.UpdateURL(r, rawReq.Host)
 
 	for _, h := range HopHeaders {
@@ -130,7 +142,13 @@ func (p *ForwardProxy) handleHttps(w http.ResponseWriter, rawReq *http.Request) 
 	response, err := http.DefaultClient.Do(r)
 	if err != nil {
 		p.logger.Error("failed to send request", zap.Error(err))
+		return
 	}
+
+	if err := p.rep.CreateRequestResponsePair(response.Request, response); err != nil {
+		p.logger.Error("failed to save request", zap.Error(err))
+	}
+
 	defer response.Body.Close()
 
 	if err := response.Write(tlsConn); err != nil {
@@ -156,11 +174,13 @@ func (p *ForwardProxy) UpdateURL(r *http.Request, host string) {
 }
 
 func (p *ForwardProxy) CreateCert(host string) (tls.Certificate, error) {
-	serial, _ := rand.Int(rand.Reader, big.NewInt(time.Now().Unix()))
-	cmd := exec.Command("/bin/sh", "/scripts/gen_cert.sh", host, serial.String())
+	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
+	serialNumber, _ := rand.Int(rand.Reader, serialNumberLimit)
 
-	if b, err := cmd.CombinedOutput(); err != nil {
-		p.logger.Error("failed to generate new cert", zap.Error(err), zap.String("output", string(b)))
+	cmd := exec.Command("/bin/sh", "/scripts/gen_cert.sh", host, serialNumber.String())
+
+	if err := cmd.Run(); err != nil {
+		p.logger.Error("failed to generate new cert", zap.Error(err))
 	}
 
 	return tls.LoadX509KeyPair(fmt.Sprintf("/certs/%s.crt", host), "/cert.key")

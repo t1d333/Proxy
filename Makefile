@@ -1,4 +1,4 @@
-all: run update-cert
+all: run
 
 build:
 	@docker compose build

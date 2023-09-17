@@ -1,26 +1,29 @@
 package models
 
 import (
+	"bytes"
+	"io"
 	"net/http"
-
-	"go.mongodb.org/mongo-driver/bson/primitive"
 )
 
 type Response struct {
-	ID      primitive.ObjectID  `bson:"_id" json:"id"`
-	Code    int                 `bson:"code" json:"code"`
-	Message string              `bson:"message" json:"message"`
-	Headers map[string][]string `bson:"headers" json:"headers"`
-	Body    string              `bson:"body" json:"body"`
+	Code    int               `bson:"code" json:"code"`
+	Message string            `bson:"message" json:"message"`
+	Headers map[string]string `bson:"headers" json:"headers"`
+	Body    string            `bson:"body" json:"body"`
 }
 
-func (r *Response) method(res *http.Response) {
+func (r *Response) ParseResponse(res *http.Response) {
 	r.Code = res.StatusCode
-	// r.Message = ???
-	r.Headers = res.Header
+	r.Message = http.StatusText(r.Code)
+	r.Headers = map[string]string{}
 
-	body := []byte{}
-	// TODO: доавить обработку ошибки
-	res.Body.Read(body)
-	r.Body = string(body)
+	for k, v := range res.Header {
+		r.Headers[k] = v[0]
+	}
+
+	buffer := bytes.NewBuffer([]byte{})
+	io.Copy(buffer, res.Body)
+	res.Body = io.NopCloser(bytes.NewReader(buffer.Bytes()))
+	r.Body = buffer.String()
 }

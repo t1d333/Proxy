@@ -12,6 +12,7 @@ WORKDIR /
 RUN apk add openssl
 COPY --from=builder /proxy/app .
 COPY ./scripts /scripts
+COPY ./configs/openssl.conf /openssl.conf
 
 # COPY ./configs/main.yml /configs/main.yml
 RUN chmod 0777 /scripts/gen_cert.sh
