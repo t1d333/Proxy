@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"bufio"
+	"bytes"
+	"context"
 	"crypto/rand"
 	"crypto/tls"
 	"fmt"
@@ -51,10 +53,14 @@ func (p *ForwardProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (p *ForwardProxy) handleHttp(w http.ResponseWriter, r *http.Request) {
 	r.RequestURI = ""
-
 	for _, header := range HopHeaders {
 		r.Header.Del(header)
 	}
+
+	body, _ := io.ReadAll(r.Body)
+	tmp := r.Clone(context.TODO())
+	tmp.Body = io.NopCloser(bytes.NewReader(body))
+	r.Body = io.NopCloser(bytes.NewReader(body))
 
 	response, err := http.DefaultTransport.RoundTrip(r)
 	if err != nil {
@@ -62,11 +68,11 @@ func (p *ForwardProxy) handleHttp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	defer response.Body.Close()
-
-	if err := p.rep.CreateRequestResponsePair(response.Request, response); err != nil {
+	if err := p.rep.CreateRequestResponsePair(tmp, response); err != nil {
 		p.logger.Error("failed to save request", zap.Error(err))
 	}
+
+	defer response.Body.Close()
 
 	for k, vv := range response.Header {
 		for _, v := range vv {
@@ -124,6 +130,12 @@ func (p *ForwardProxy) handleHttps(w http.ResponseWriter, rawReq *http.Request) 
 	reader := bufio.NewReader(tlsConn)
 
 	r, err := http.ReadRequest(reader)
+
+	body, _ := io.ReadAll(r.Body)
+	clone := r.Clone(context.TODO())
+	clone.Body = io.NopCloser(bytes.NewReader(body))
+	r.Body = io.NopCloser(bytes.NewReader(body))
+
 	if err != nil {
 		if err != io.EOF {
 			p.logger.Error("failed to read request", zap.Error(err))
@@ -145,7 +157,7 @@ func (p *ForwardProxy) handleHttps(w http.ResponseWriter, rawReq *http.Request) 
 		return
 	}
 
-	if err := p.rep.CreateRequestResponsePair(response.Request, response); err != nil {
+	if err := p.rep.CreateRequestResponsePair(clone, response); err != nil {
 		p.logger.Error("failed to save request", zap.Error(err))
 	}
 

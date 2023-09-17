@@ -2,15 +2,19 @@ package mongo
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 
 	"github.com/t1d333/proxyhw/internal/models"
 	repModule "github.com/t1d333/proxyhw/internal/repository"
+	"go.mongodb.org/mongo-driver/bson"
 	"go.mongodb.org/mongo-driver/bson/primitive"
 	"go.mongodb.org/mongo-driver/mongo"
 	"go.uber.org/zap"
 )
+
+var ErrNotFound = errors.New("request not found")
 
 type repository struct {
 	conn   *mongo.Client
@@ -29,7 +33,7 @@ func (rep *repository) CreateRequestResponsePair(req *http.Request, res *http.Re
 	reqModel := models.Request{}
 	resModel := models.Response{}
 
-	reqModel.ParseRequst(req)
+	reqModel.ParseRequest(req)
 	resModel.ParseResponse(res)
 
 	pair := models.RequestResponsePair{
@@ -46,8 +50,23 @@ func (rep *repository) CreateRequestResponsePair(req *http.Request, res *http.Re
 	return nil
 }
 
-func (rep *repository) GetRequestResponsePair(id string) (models.RequestResponsePair, error) {
-	panic("unimplemented")
+func (rep *repository) GetRequestResponsePair(hid string) (models.RequestResponsePair, error) {
+	ctx := context.Background()
+
+	res := models.RequestResponsePair{}
+	id, _ := primitive.ObjectIDFromHex(hid)
+
+	c := rep.conn.Database("proxy").Collection("requests").FindOne(ctx, bson.D{bson.E{Key: "_id", Value: id}})
+
+	if err := c.Decode(&res); err != nil {
+		if err == mongo.ErrNoDocuments {
+			return res, ErrNotFound
+		}
+		rep.logger.Error("failed to find request response pair by id", zap.Error(err))
+
+		return res, fmt.Errorf("failed to find request response pair by id: %w", err)
+	}
+	return res, nil
 }
 
 func (rep *repository) GetAllPairs() ([]models.RequestResponsePair, error) {
