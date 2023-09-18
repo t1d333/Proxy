@@ -130,12 +130,6 @@ func (p *ForwardProxy) handleHttps(w http.ResponseWriter, rawReq *http.Request) 
 	reader := bufio.NewReader(tlsConn)
 
 	r, err := http.ReadRequest(reader)
-
-	body, _ := io.ReadAll(r.Body)
-	clone := r.Clone(context.TODO())
-	clone.Body = io.NopCloser(bytes.NewReader(body))
-	r.Body = io.NopCloser(bytes.NewReader(body))
-
 	if err != nil {
 		if err != io.EOF {
 			p.logger.Error("failed to read request", zap.Error(err))
@@ -146,10 +140,14 @@ func (p *ForwardProxy) handleHttps(w http.ResponseWriter, rawReq *http.Request) 
 	p.logger.Infow("new tls request", "url", r.URL.String(), "host", r.Host, "method", r.Method)
 
 	p.UpdateURL(r, rawReq.Host)
-
 	for _, h := range HopHeaders {
 		r.Header.Del(h)
 	}
+
+	body, _ := io.ReadAll(r.Body)
+	clone := r.Clone(context.TODO())
+	clone.Body = io.NopCloser(bytes.NewReader(body))
+	r.Body = io.NopCloser(bytes.NewReader(body))
 
 	response, err := http.DefaultClient.Do(r)
 	if err != nil {

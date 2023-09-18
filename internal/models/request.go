@@ -2,6 +2,7 @@ package models
 
 import (
 	"bytes"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -16,12 +17,14 @@ type Request struct {
 	Cookies    map[string]string   `bson:"cookies" json:"cookies"`
 	PostParams map[string][]string `bson:"post_params" json:"post_params"`
 	Body       string              `bson:"body" json:"body"`
+	Scheme     string              `bson:"scheme" json:"scheme"`
 }
 
 func (r *Request) ParseRequest(req *http.Request) {
 	r.Method = req.Method
 	r.Path = req.URL.Path
 	r.Host = req.Host
+	r.Scheme = req.URL.Scheme
 	r.Cookies = map[string]string{}
 	r.Headers = map[string]string{}
 	r.PostParams = map[string][]string{}
@@ -66,4 +69,45 @@ func (r *Request) ParseRequest(req *http.Request) {
 	body := bytes.NewBuffer([]byte{})
 	io.Copy(body, req.Body)
 	r.Body = body.String()
+}
+
+func (r *Request) ConvertToHttpRequest() *http.Request {
+	body := []byte{}
+	url := ""
+
+	url += r.Scheme + "://" + r.Host + r.Path
+
+	if len(r.GetParams) > 0 {
+		url += "?"
+		for k, v := range r.GetParams {
+			for _, i := range v {
+				url += fmt.Sprintf("%s=%s&", k, i)
+			}
+		}
+	}
+
+	if len(r.PostParams) > 0 {
+		for k, v := range r.PostParams {
+			for _, i := range v {
+				body = append(body, []byte(k+"="+i+"&")...)
+			}
+		}
+	} else {
+		body = []byte(r.Body)
+	}
+
+	res, err := http.NewRequest(r.Method, url, bytes.NewReader(body))
+	if err != nil {
+		return res
+	}
+
+	for k, v := range r.Headers {
+		res.Header.Add(k, v)
+	}
+
+	for k, v := range r.Cookies {
+		res.AddCookie(&http.Cookie{Name: k, Value: v})
+	}
+
+	return res
 }

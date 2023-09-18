@@ -2,8 +2,11 @@ package http
 
 import (
 	"encoding/json"
+	"io"
+
 	// "fmt"
 	"net/http"
+	"net/url"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/t1d333/proxyhw/internal/repository"
@@ -45,9 +48,36 @@ func (d *delivery) repeatRequest(w http.ResponseWriter, r *http.Request) {
 			status = http.StatusNotFound
 		}
 		http.Error(w, err.Error(), status)
+		return
+	}
+	req := pair.Request.ConvertToHttpRequest()
+
+	proxyUrl, _ := url.Parse("http://proxy:8080")
+	client := http.Client{
+		Transport: &http.Transport{Proxy: http.ProxyURL(proxyUrl)},
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 
-	
+	response, err := client.Do(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	defer response.Body.Close()
+
+	for k, vv := range response.Header {
+		for _, v := range vv {
+			w.Header().Add(k, v)
+		}
+	}
+
+	w.WriteHeader(response.StatusCode)
+	if _, err := io.Copy(w, response.Body); err != nil {
+		d.logger.Error("failed to copy data from response", zap.Error(err))
+	}
 }
 
 func (d *delivery) getRequest(w http.ResponseWriter, r *http.Request) {
