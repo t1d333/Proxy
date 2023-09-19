@@ -31,7 +31,7 @@ subjectAltName = @alt_names
 DNS.1 = $DOMAIN
 EOF
 
-openssl req -new -key cert.key -sha256 -config csr.conf | openssl x509 -req -days 3650 -CA ca.crt -CAkey ca.key -set_serial "$2" -out /certs/"$1.crt" -extfile cert.conf 
+openssl req -new -key cert.key -sha256 -config csr.conf | openssl x509 -req -days 3650 -CA ca.crt -CAkey ca.key -CAcreateserial -out /certs/"$1.crt" -extfile cert.conf 
 
 
 

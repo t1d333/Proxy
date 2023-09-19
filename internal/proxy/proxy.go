@@ -4,11 +4,9 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/tls"
 	"fmt"
 	"io"
-	"math/big"
 	"net"
 	"net/http"
 	"net/url"
@@ -184,10 +182,7 @@ func (p *ForwardProxy) UpdateURL(r *http.Request, host string) {
 }
 
 func (p *ForwardProxy) CreateCert(host string) (tls.Certificate, error) {
-	serialNumberLimit := new(big.Int).Lsh(big.NewInt(1), 128)
-	serialNumber, _ := rand.Int(rand.Reader, serialNumberLimit)
-
-	cmd := exec.Command("/bin/sh", "/scripts/gen_cert.sh", host, serialNumber.String())
+	cmd := exec.Command("/bin/sh", "/scripts/gen_cert.sh", host)
 
 	if err := cmd.Run(); err != nil {
 		p.logger.Error("failed to generate new cert", zap.Error(err))
