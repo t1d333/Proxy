@@ -2,6 +2,7 @@ package models
 
 import (
 	"bytes"
+	"compress/gzip"
 	"io"
 	"net/http"
 )
@@ -25,5 +26,20 @@ func (r *Response) ParseResponse(res *http.Response) {
 	buffer := bytes.NewBuffer([]byte{})
 	io.Copy(buffer, res.Body)
 	res.Body = io.NopCloser(bytes.NewReader(buffer.Bytes()))
-	r.Body = buffer.String()
+
+	if res.Header.Get("Content-Encoding") == "gzip" {
+		reader, err := gzip.NewReader(buffer)
+		if err != nil {
+			return
+		}
+		defer reader.Close()
+
+		b, err := io.ReadAll(reader)
+		if err != nil {
+			return
+		}
+		r.Body = string(b)
+	} else {
+		r.Body = buffer.String()
+	}
 }

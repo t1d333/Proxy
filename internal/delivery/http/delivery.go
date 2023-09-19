@@ -3,8 +3,6 @@ package http
 import (
 	"encoding/json"
 	"io"
-
-	// "fmt"
 	"net/http"
 	"net/url"
 
@@ -23,6 +21,7 @@ func InitHandlers(router chi.Router, logger *zap.SugaredLogger, rep repository.R
 	d := &delivery{logger, rep}
 	router.Get("/api/requests", d.getAllRequests)
 	router.Get("/api/requests/{id}", d.getRequest)
+	// router.Get("/api/scan/{id}")
 	router.Post("/api/requests/{id}", d.repeatRequest)
 }
 
