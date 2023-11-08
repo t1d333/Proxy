@@ -2,6 +2,7 @@ package http
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -21,7 +22,6 @@ func InitHandlers(router chi.Router, logger *zap.SugaredLogger, rep repository.R
 	d := &delivery{logger, rep}
 	router.Get("/api/requests", d.getAllRequests)
 	router.Get("/api/requests/{id}", d.getRequest)
-	// router.Get("/api/scan/{id}")
 	router.Post("/api/requests/{id}", d.repeatRequest)
 }
 
@@ -35,7 +35,11 @@ func (d *delivery) getAllRequests(w http.ResponseWriter, r *http.Request) {
 	b, _ := json.Marshal(pairs)
 	w.Header().Add("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(b)
+
+	if _, err := w.Write(b); err != nil {
+		d.logger.Error("failed to write reponse", err)
+		w.WriteHeader(http.StatusInternalServerError)
+	}
 }
 
 func (d *delivery) repeatRequest(w http.ResponseWriter, r *http.Request) {
@@ -43,17 +47,18 @@ func (d *delivery) repeatRequest(w http.ResponseWriter, r *http.Request) {
 	pair, err := d.rep.GetRequestResponsePair(id)
 	if err != nil {
 		status := http.StatusInternalServerError
-		if err == mongo.ErrNotFound {
+		if errors.Is(err, mongo.ErrNotFound) {
 			status = http.StatusNotFound
 		}
 		http.Error(w, err.Error(), status)
 		return
 	}
-	req := pair.Request.ConvertToHttpRequest()
+	req := pair.Request.ConvertToHTTPRequest()
 
-	proxyUrl, _ := url.Parse("http://proxy:8080")
+	proxyURL, _ := url.Parse("http://proxy:8080")
+
 	client := http.Client{
-		Transport: &http.Transport{Proxy: http.ProxyURL(proxyUrl)},
+		Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)},
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		},
@@ -76,6 +81,7 @@ func (d *delivery) repeatRequest(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(response.StatusCode)
 	if _, err := io.Copy(w, response.Body); err != nil {
 		d.logger.Error("failed to copy data from response", zap.Error(err))
+		w.WriteHeader(http.StatusInternalServerError)
 	}
 }
 
@@ -85,9 +91,10 @@ func (d *delivery) getRequest(w http.ResponseWriter, r *http.Request) {
 	pair, err := d.rep.GetRequestResponsePair(id)
 	if err != nil {
 		status := http.StatusInternalServerError
-		if err == mongo.ErrNotFound {
+		if errors.Is(err, mongo.ErrNotFound) {
 			status = http.StatusNotFound
 		}
+
 		http.Error(w, err.Error(), status)
 		return
 	}
@@ -95,5 +102,9 @@ func (d *delivery) getRequest(w http.ResponseWriter, r *http.Request) {
 	b, _ := json.Marshal(pair)
 	w.Header().Add("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
-	w.Write(b)
+
+	if _, err := w.Write(b); err != nil {
+		d.logger.Error("failed to write reponse", zap.Error(err))
+		w.WriteHeader(http.StatusInternalServerError)
+	}
 }

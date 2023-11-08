@@ -3,6 +3,7 @@ package models
 import (
 	"bytes"
 	"compress/gzip"
+	"fmt"
 	"io"
 	"net/http"
 )
@@ -14,7 +15,7 @@ type Response struct {
 	Body    string            `bson:"body" json:"body"`
 }
 
-func (r *Response) ParseResponse(res *http.Response) {
+func (r *Response) ParseResponse(res *http.Response) error {
 	r.Code = res.StatusCode
 	r.Message = http.StatusText(r.Code)
 	r.Headers = map[string]string{}
@@ -24,22 +25,28 @@ func (r *Response) ParseResponse(res *http.Response) {
 	}
 
 	buffer := bytes.NewBuffer([]byte{})
-	io.Copy(buffer, res.Body)
+	if _, err := io.Copy(buffer, res.Body); err != nil {
+		return fmt.Errorf("failed to copy response body: %w", err)
+	}
+
 	res.Body = io.NopCloser(bytes.NewReader(buffer.Bytes()))
 
 	if res.Header.Get("Content-Encoding") == "gzip" {
 		reader, err := gzip.NewReader(buffer)
 		if err != nil {
-			return
+			return fmt.Errorf("failed to create gzip encoder: %w", err)
 		}
+
 		defer reader.Close()
 
 		b, err := io.ReadAll(reader)
 		if err != nil {
-			return
+			return fmt.Errorf("failed to encode body: %w", err)
 		}
 		r.Body = string(b)
 	} else {
 		r.Body = buffer.String()
 	}
+
+	return nil
 }

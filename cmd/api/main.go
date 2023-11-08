@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"net/http"
 	"time"
 
@@ -13,19 +14,31 @@ import (
 	"go.uber.org/zap"
 )
 
+const timeout = 10 * time.Second
+
 func main() {
-	logger, _ := zap.NewDevelopment()
+	logger, err := zap.NewDevelopment()
+	if err != nil {
+		log.Fatalf("failed to create logger: %v", err)
+		return
+	}
+
 	sugar := logger.Sugar()
 	defer logger.Sync()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
 	conn := mongo.InitDB(ctx, sugar)
 
 	rep := rep.NewRepository(conn, sugar)
+
 	router := chi.NewRouter()
 	router.Use(middleware.Logger)
 	router.Use(middleware.Recoverer)
+
 	del.InitHandlers(router, sugar, rep)
+
 	sugar.Info("starting proxy server on port 8000...")
 	if err := http.ListenAndServe(":8000", router); err != nil {
 		sugar.Fatalw("failed to start server", "err", err)

@@ -2,6 +2,8 @@ package models
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -20,7 +22,7 @@ type Request struct {
 	Scheme     string              `bson:"scheme" json:"scheme"`
 }
 
-func (r *Request) ParseRequest(req *http.Request) {
+func (r *Request) ParseRequest(req *http.Request) error {
 	r.Method = req.Method
 	r.Path = req.URL.Path
 	r.Host = req.Host
@@ -37,7 +39,6 @@ func (r *Request) ParseRequest(req *http.Request) {
 		}
 
 		r.Headers[k] = v[0]
-
 	}
 
 	for _, c := range req.Cookies() {
@@ -51,27 +52,31 @@ func (r *Request) ParseRequest(req *http.Request) {
 	}
 
 	if req.Body == nil {
-		return
+		return errors.New("nil body")
 	}
 
 	if req.Header.Get("Content-Type") == "application/x-www-form-urlencoded" {
 		if err := req.ParseForm(); err != nil {
-			return
+			return fmt.Errorf("failed to parse form: %w", err)
 		}
 
 		for k, v := range req.PostForm {
 			r.PostParams[k] = v
 		}
 
-		return
+		return nil
 	}
 
 	body := bytes.NewBuffer([]byte{})
-	io.Copy(body, req.Body)
+	if _, err := io.Copy(body, req.Body); err != nil {
+		return fmt.Errorf("failed to copy request body: %w", err)
+	}
+
 	r.Body = body.String()
+	return nil
 }
 
-func (r *Request) ConvertToHttpRequest() *http.Request {
+func (r *Request) ConvertToHTTPRequest() *http.Request {
 	body := []byte{}
 	url := ""
 
@@ -96,7 +101,7 @@ func (r *Request) ConvertToHttpRequest() *http.Request {
 		body = []byte(r.Body)
 	}
 
-	res, err := http.NewRequest(r.Method, url, bytes.NewReader(body))
+	res, err := http.NewRequestWithContext(context.Background(), r.Method, url, bytes.NewReader(body))
 	if err != nil {
 		return res
 	}

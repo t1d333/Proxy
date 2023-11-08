@@ -11,12 +11,16 @@ import (
 	"go.uber.org/zap"
 )
 
+const timeout = 10 * time.Second
+
 func main() {
 	logger, _ := zap.NewDevelopment()
 	sugar := logger.Sugar()
 	defer logger.Sync()
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
+
 	conn := mongo.InitDB(ctx, sugar)
 
 	rep := rep.NewRepository(conn, sugar)

@@ -33,8 +33,15 @@ func (rep *repository) CreateRequestResponsePair(req *http.Request, res *http.Re
 	reqModel := models.Request{}
 	resModel := models.Response{}
 
-	reqModel.ParseRequest(req)
-	resModel.ParseResponse(res)
+	if err := reqModel.ParseRequest(req); err != nil {
+		rep.logger.Error("failed to parse request", err)
+		return fmt.Errorf("failed to parse request: %w", err)
+	}
+
+	if err := resModel.ParseResponse(res); err != nil {
+		rep.logger.Error("failed to parse response", err)
+		return fmt.Errorf("failed to parse reponse: %w", err)
+	}
 
 	pair := models.RequestResponsePair{
 		ID:       primitive.NewObjectID(),
@@ -59,7 +66,7 @@ func (rep *repository) GetRequestResponsePair(hid string) (models.RequestRespons
 	c := rep.conn.Database("proxy").Collection("requests").FindOne(ctx, bson.D{bson.E{Key: "_id", Value: id}})
 
 	if err := c.Decode(&res); err != nil {
-		if err == mongo.ErrNoDocuments {
+		if errors.Is(err, mongo.ErrNoDocuments) {
 			return res, ErrNotFound
 		}
 		rep.logger.Error("failed to find request response pair by id", zap.Error(err))
